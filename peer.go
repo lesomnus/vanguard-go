@@ -24,7 +24,7 @@ type Peer struct {
 	ctrl     *webrtc.DataChannel
 
 	channels *sync.Map
-	onOffer  atomic.Value // func(signal.Channel)
+	onOffer  atomic.Value // func(string, signal.Channel)
 }
 
 func newPeer(conn *webrtc.PeerConnection, ctrl *webrtc.DataChannel) *Peer {
@@ -37,7 +37,7 @@ func newPeer(conn *webrtc.PeerConnection, ctrl *webrtc.DataChannel) *Peer {
 		onOffer:  atomic.Value{},
 	}
 
-	peer.onOffer.Store(func(sig signal.Channel) {
+	peer.onOffer.Store(func(_ string, sig signal.Channel) {
 		time.Sleep(3 * time.Second)
 		sig.Close()
 	})
@@ -79,8 +79,8 @@ func newPeer(conn *webrtc.PeerConnection, ctrl *webrtc.DataChannel) *Peer {
 
 				peer.sendControl(&control.Accept{Port: m.Port})
 
-				handler := peer.onOffer.Load().(func(sig signal.Channel))
-				handler(sig)
+				handler := peer.onOffer.Load().(func(label string, sig signal.Channel))
+				handler(m.Label, sig)
 			}
 
 		case (*control.Accept):
@@ -123,11 +123,11 @@ func newPeer(conn *webrtc.PeerConnection, ctrl *webrtc.DataChannel) *Peer {
 	return peer
 }
 
-func (p *Peer) OnOffer(handler func(sig signal.Channel)) {
+func (p *Peer) OnOffer(handler func(label string, sig signal.Channel)) {
 	p.onOffer.Swap(handler)
 }
 
-func (p *Peer) Offer(conn *webrtc.PeerConnection) (*Peer, error) {
+func (p *Peer) Offer(conn *webrtc.PeerConnection, label string) (*Peer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sig := &sigChannel{
 		peer: p,
@@ -151,7 +151,7 @@ func (p *Peer) Offer(conn *webrtc.PeerConnection) (*Peer, error) {
 			continue
 		}
 
-		if err := p.sendControl(&control.Connect{Port: sig.port}); err != nil {
+		if err := p.sendControl(&control.Connect{Port: sig.port, Label: label}); err != nil {
 			cancel()
 			return nil, fmt.Errorf("send: %w", err)
 		}

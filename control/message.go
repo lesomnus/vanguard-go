@@ -79,7 +79,8 @@ func (s *CloseAck) kind() string {
 }
 
 type Connect struct {
-	Port uint32 `json:"port"`
+	Port  uint32 `json:"port"`
+	Label string `json:"label"`
 }
 
 func (s *Connect) kind() string {

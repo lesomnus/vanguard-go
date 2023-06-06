@@ -53,19 +53,21 @@ func TestNegotiate(t *testing.T) {
 	require.NoError(err)
 
 	wg.Add(2)
-	peers[1].OnOffer(func(sig signal.Channel) {
+	offered_label := ""
+	peers[1].OnOffer(func(label string, sig signal.Channel) {
 		go func() {
 			defer wg.Done()
 			peer, err := vanguard.Answer(pc4, sig)
 			require.NoError(err)
 
 			peers[3] = peer
+			offered_label = label
 		}()
 	})
 	go func() {
 		defer wg.Done()
 
-		peer, err := peers[0].Offer(pc3)
+		peer, err := peers[0].Offer(pc3, "foo")
 		require.NoError(err)
 
 		peers[2] = peer
@@ -74,4 +76,5 @@ func TestNegotiate(t *testing.T) {
 
 	require.Equal(webrtc.PeerConnectionStateConnected, peers[2].ConnectionState())
 	require.Equal(webrtc.PeerConnectionStateConnected, peers[3].ConnectionState())
+	require.Equal("foo", offered_label)
 }
