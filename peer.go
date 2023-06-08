@@ -119,6 +119,12 @@ func newPeer(conn *webrtc.PeerConnection, ctrl *webrtc.DataChannel) *Peer {
 			panic("unknown type of control message")
 		}
 	})
+	ctrl.OnClose(func() {
+		channels.Range(func(_, c any) bool {
+			c.(*sigChannel).Close()
+			return true
+		})
+	})
 
 	return peer
 }
@@ -156,10 +162,17 @@ func (p *Peer) Offer(conn *webrtc.PeerConnection, label string) (*Peer, error) {
 			return nil, fmt.Errorf("send: %w", err)
 		}
 
-		_, ok := <-sig.buff
-		if !ok {
-			// Rejected.
-			continue
+		select {
+		case <-sig.ctx.Done():
+			{
+				return nil, fmt.Errorf("signaling channel is closed while connecting")
+			}
+
+		case _, ok := <-sig.buff:
+			if !ok {
+				// Rejected.
+				continue
+			}
 		}
 
 		if peer, err := Offer(conn, sig); err != nil {
@@ -180,7 +193,7 @@ func (p *Peer) sendControl(message control.Message) error {
 		return err
 	}
 
-	return p.ctrl.Send(data)
+	return p.ctrl.SendText(string(data))
 }
 
 type sigChannel struct {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 
 	"github.com/lesomnus/vanguard-go/signal"
@@ -19,6 +20,19 @@ func Dial(conn *webrtc.PeerConnection, sig signal.Channel, local func() (webrtc.
 	if err != nil {
 		return nil, fmt.Errorf("create data channel: %w", err)
 	}
+
+	wait_ctrl := make(chan struct{})
+	var (
+		ctrl_err        error
+		wait_ctrl_close sync.Once
+	)
+	ctrl.OnOpen(func() { wait_ctrl_close.Do(func() { close(wait_ctrl) }) })
+	ctrl.OnError(func(err error) {
+		wait_ctrl_close.Do(func() {
+			ctrl_err = err
+			close(wait_ctrl)
+		})
+	})
 
 	var result atomic.Value
 
@@ -40,7 +54,7 @@ func Dial(conn *webrtc.PeerConnection, sig signal.Channel, local func() (webrtc.
 			return
 		}
 
-		sig.Send(&signal.Candidate{Data: candidate})
+		sig.Send(&signal.Candidate{Data: candidate.ToJSON()})
 	})
 	conn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		switch state {
@@ -61,7 +75,7 @@ func Dial(conn *webrtc.PeerConnection, sig signal.Channel, local func() (webrtc.
 
 	if sdp := conn.LocalDescription(); sdp == nil {
 		return abort(fmt.Errorf("unexpected nil value for local description"))
-	} else if err := sig.Send(&signal.Sdp{Data: sdp}); err != nil {
+	} else if err := sig.Send(&signal.Sdp{Data: *sdp}); err != nil {
 		return abort(fmt.Errorf("send local session description: %w", err))
 	}
 
@@ -78,6 +92,11 @@ func Dial(conn *webrtc.PeerConnection, sig signal.Channel, local func() (webrtc.
 				return nil, fmt.Errorf("unexpected close of signalling channel")
 			}
 
+			<-wait_ctrl
+			if ctrl_err != nil {
+				return nil, fmt.Errorf("data channel for control: %w", err)
+			}
+
 			return newPeer(conn, ctrl), nil
 		}
 
@@ -86,12 +105,12 @@ func Dial(conn *webrtc.PeerConnection, sig signal.Channel, local func() (webrtc.
 			return nil, fmt.Errorf("remote abort: %s", m.Reason)
 
 		case *signal.Sdp:
-			if err := conn.SetRemoteDescription(*m.Data); err != nil {
+			if err := conn.SetRemoteDescription(m.Data); err != nil {
 				return abort(fmt.Errorf("set remote description: %w", err))
 			}
 
 		case *signal.Candidate:
-			if err := conn.AddICECandidate(m.Data.ToJSON()); err != nil {
+			if err := conn.AddICECandidate(m.Data); err != nil {
 				return abort(fmt.Errorf("add ICE candidate: %w", err))
 			}
 		}
@@ -114,7 +133,7 @@ func Answer(conn *webrtc.PeerConnection, sig signal.Channel) (*Peer, error) {
 		for {
 			switch m := message.(type) {
 			case *signal.Sdp:
-				if err := conn.SetRemoteDescription(*m.Data); err != nil {
+				if err := conn.SetRemoteDescription(m.Data); err != nil {
 					return webrtc.SessionDescription{}, fmt.Errorf("set remote description: %w", err)
 				}
 

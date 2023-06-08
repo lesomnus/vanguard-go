@@ -72,7 +72,7 @@ func (m *Abort) kind() string {
 }
 
 type Sdp struct {
-	Data *webrtc.SessionDescription `json:"data"`
+	Data webrtc.SessionDescription `json:"data"`
 }
 
 func (m *Sdp) kind() string {
@@ -80,7 +80,7 @@ func (m *Sdp) kind() string {
 }
 
 type Candidate struct {
-	Data *webrtc.ICECandidate `json:"data"`
+	Data webrtc.ICECandidateInit `json:"data"`
 }
 
 func (m *Candidate) kind() string {
